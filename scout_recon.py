@@ -58,85 +58,98 @@ def setup_directories(domain):
     for directory in directories:
         os.makedirs(directory, exist_ok=True)
 
-def enumerate_subdomains(domain, aggressive_mode):
-    log("INFO", "Starting subdomain enumeration...")
-    subdomains_dir = os.path.join(SCAN_DIR, "subdomains")
-    raw_subdomains = os.path.join(subdomains_dir, "raw_subdomains.txt")
-    unique_subdomains = os.path.join(subdomains_dir, "unique_subdomains.txt")
+def enumerate_subdomains(domain, aggressive_mode):  
+    log("INFO", "Starting subdomain enumeration...")  
+    subdomains_dir = os.path.join(SCAN_DIR, "subdomains")  
+    raw_subdomains = os.path.join(subdomains_dir, "raw_subdomains.txt")  
+    unique_subdomains = os.path.join(subdomains_dir, "unique_subdomains.txt")  
 
-    # Run subfinder
-    os.system(f"subfinder -d {domain} > {raw_subdomains}")
+    # Run subfinder  
+    try:  
+        subprocess.run(f"subfinder -d {domain} -o {raw_subdomains}", shell=True, check=True)  
+    except subprocess.CalledProcessError as e:  
+        log("ERROR", f"Subfinder failed: {str(e)}")  
 
-    # Run amass
-    if aggressive_mode:
-        os.system(f"amass enum -d {domain} > {raw_subdomains}.amass")
-    else:
-        os.system(f"amass enum -passive -d {domain} > {raw_subdomains}.amass")
+    # Run amass  
+    try:  
+        if aggressive_mode:  
+            subprocess.run(f"amass enum -d {domain} -o {raw_subdomains}.amass", shell=True, check=True)  
+        else:  
+            subprocess.run(f"amass enum -passive -d {domain} -o {raw_subdomains}.amass", shell=True, check=True)  
+    except subprocess.CalledProcessError as e:  
+        log("ERROR", f"Amass failed: {str(e)}")  
 
-    # Combine amass results if they exist
-    if os.path.exists(f"{raw_subdomains}.amass"):
-        with open(f"{raw_subdomains}.amass", 'r') as amass_file:
-            with open(raw_subdomains, 'a') as raw_file:
-                raw_file.write(amass_file.read())
+    # Combine amass results if they exist  
+    if os.path.exists(f"{raw_subdomains}.amass"):  
+        with open(f"{raw_subdomains}.amass", 'r') as amass_file:  
+            with open(raw_subdomains, 'a') as raw_file:  
+                raw_file.write(amass_file.read())  
 
-    # Remove duplicates and save to unique_subdomains.txt
-    if os.path.isfile(raw_subdomains):
-        with open(raw_subdomains) as raw, open(unique_subdomains, "w") as unique:
-            unique_domains = set(raw.read().splitlines())
-            unique.write("\n".join(sorted(unique_domains)))
+    # Remove duplicates and save to unique_subdomains.txt  
+    if os.path.isfile(raw_subdomains):  
+        with open(raw_subdomains) as raw, open(unique_subdomains, "w") as unique:  
+            unique_domains = set(raw.read().splitlines())  
+            unique.write("\n".join(sorted(unique_domains)))  
 
-        subdomains_count = len(unique_domains)
-        log("SUCCESS", f"Found {subdomains_count} unique subdomains")
-        log("SUCCESS", f"Results saved to {unique_subdomains}")
-        return unique_subdomains
-    else:
-        log("WARN", "No subdomains found")
-        return None
+        subdomains_count = len(unique_domains)  
+        log("SUCCESS", f"Found {subdomains_count} unique subdomains")  
+        log("SUCCESS", f"Results saved to {unique_subdomains}")  
+        return unique_subdomains  
+    else:  
+        log("WARN", "No subdomains found")  
+        return None  
 
-def probe_live_hosts(subdomains_file, aggressive_mode):
-    if not subdomains_file or not os.path.isfile(subdomains_file):
-        log("WARN", "No subdomains file for probing")
-        return None
+def probe_live_hosts(subdomains_file, aggressive_mode):  
+    if not subdomains_file or not os.path.isfile(subdomains_file):  
+        log("WARN", "No subdomains file for probing")  
+        return None  
 
-    log("INFO", "Probing for live hosts...")
-    live_hosts_file = os.path.join(SCAN_DIR, "subdomains", "live_hosts.txt")
+    log("INFO", "Probing for live hosts...")  
+    live_hosts_file = os.path.join(SCAN_DIR, "subdomains", "live_hosts.txt")  
 
-    if aggressive_mode:
-        os.system(f"httpx -l {subdomains_file} -silent -t 100 -o {live_hosts_file}")
-    else:
-        os.system(f"httpx -l {subdomains_file} -silent -t 50 -o {live_hosts_file}")
+    try:  
+        if aggressive_mode:  
+            subprocess.run(f"httpx -l {subdomains_file} -silent -t 100 -o {live_hosts_file}", shell=True, check=True)  
+        else:  
+            subprocess.run(f"httpx -l {subdomains_file} -silent -t 50 -o {live_hosts_file}", shell=True, check=True)  
+    except subprocess.CalledProcessError as e:  
+        log("ERROR", f"httpx failed: {str(e)}")  
+        return None  
 
-    if os.path.isfile(live_hosts_file) and os.path.getsize(live_hosts_file) > 0:
-        hosts_count = sum(1 for _ in open(live_hosts_file))
-        log("SUCCESS", f"Found {hosts_count} live hosts")
-        log("SUCCESS", f"Results saved to {live_hosts_file}")
-        return live_hosts_file
-    else:
-        log("WARN", "No live hosts found")
-        return None
+    if os.path.isfile(live_hosts_file) and os.path.getsize(live_hosts_file) > 0:  
+        hosts_count = sum(1 for _ in open(live_hosts_file))  
+        log("SUCCESS", f"Found {hosts_count} live hosts")  
+        log("SUCCESS", f"Results saved to {live_hosts_file}")  
+        return live_hosts_file  
+    else:  
+        log("WARN", "No live hosts found")  
+        return None  
 
-def fetch_wayback_data(subdomains_file):
-    if not subdomains_file or not os.path.isfile(subdomains_file):
-        log("WARN", "No subdomains file for wayback data collection")
-        return None
+def fetch_wayback_data(subdomains_file):  
+    if not subdomains_file or not os.path.isfile(subdomains_file):  
+        log("WARN", "No subdomains file for wayback data collection")  
+        return None  
 
-    log("INFO", "Fetching URLs from Wayback Machine...")
-    wayback_dir = os.path.join(SCAN_DIR, "wayback_data")
-    wayback_file = os.path.join(wayback_dir, "waybackurls.txt")
+    log("INFO", "Fetching URLs from Wayback Machine...")  
+    wayback_dir = os.path.join(SCAN_DIR, "wayback_data")  
+    wayback_file = os.path.join(wayback_dir, "waybackurls.txt")  
 
-    with open(subdomains_file) as f:
-        domains = f.read().splitlines()
+    with open(subdomains_file) as f:  
+        domains = f.read().splitlines()  
 
-    for domain in domains:
-        os.system(f"waybackurls {domain} > {wayback_file}")
+    try:  
+        for domain in domains:  
+            subprocess.run(f"waybackurls {domain} >> {wayback_file}", shell=True, check=True)  
+    except subprocess.CalledProcessError as e:  
+        log("ERROR", f"waybackurls failed: {str(e)}")  
 
-    if os.path.isfile(wayback_file) and os.path.getsize(wayback_file) > 0:
-        urls_count = sum(1 for _ in open(wayback_file))
-        log("SUCCESS", f"Found {urls_count} URLs in Wayback Machine")
-        log("SUCCESS", f"Results saved to {wayback_file}")
-        return wayback_file
-    else:
-        log("WARN", "No wayback URLs found")
+    if os.path.isfile(wayback_file) and os.path.getsize(wayback_file) > 0:  
+        urls_count = sum(1 for _ in open(wayback_file))  
+        log("SUCCESS", f"Found {urls_count} URLs in Wayback Machine")  
+        log("SUCCESS", f"Results saved to {wayback_file}")  
+        return wayback_file  
+    else:  
+        log("WARN", "No wayback URLs found")  
         return None
 
 def combine_urls(live_hosts_file, wayback_file):
