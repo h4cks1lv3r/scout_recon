@@ -1,64 +1,62 @@
+
 #!/usr/bin/env python3
 
 import os
 import sys
 import shutil
 import argparse
-from datetime import datetime
 import subprocess
+from datetime import datetime
 
 VERSION = "1.0"
-SCAN_DIR = ""
-
-# ANSI escape codes for colored output
-COLORS = {
-    "INFO": "\033[94m",  # Blue
-    "SUCCESS": "\033[92m",  # Green
-    "WARN": "\033[93m",  # Yellow
-    "ERROR": "\033[91m",  # Red
-    "ENDC": "\033[0m",  # Reset color
-}
+SCAN_DIR = None
 
 def log(level, message):
-    timestamp = datetime.now().strftime("%H:%M:%S")
-    print(f"{COLORS[level]}[{timestamp}] [{level}] {message}{COLORS['ENDC']}")
-
-def setup_directories(domain):
-    global SCAN_DIR
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    SCAN_DIR = os.path.join(os.getcwd(), f"{domain}_scan_{timestamp}")
-
-    # Create main directory and subdirectories
-    directories = [
-        "subdomains",
-        "wayback_data",
-        "crawled_urls",
-        "content_discovery",
-        "reports",
-    ]
-
-    for directory in directories:
-        os.makedirs(os.path.join(SCAN_DIR, directory), exist_ok=True)
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] [{level}] {message}")
 
 def run_command(command):
     try:
-        subprocess.run(command, shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return True
-    except subprocess.CalledProcessError:
-        return False
+        subprocess.run(command, shell=True, check=True)
+    except subprocess.CalledProcessError as e:
+        log("ERROR", f"Command failed: {command}")
+        log("ERROR", str(e))
 
 def check_requirements():
-    required_tools = [
-        "subfinder", "amass", "httpx", "waybackurls",
-        "katana", "ffuf"
-    ]
+    tools = ["subfinder", "amass", "httpx", "waybackurls", "katana", "ffuf"]
     missing_tools = []
-    for tool in required_tools:
+
+    for tool in tools:
         if not shutil.which(tool):
             missing_tools.append(tool)
+
     if missing_tools:
-        log("ERROR", f"The following required tools are missing: {', '.join(missing_tools)}")
+        log("ERROR", f"Missing required tools: {', '.join(missing_tools)}")
+        log("ERROR", "Please install all required tools before running the script.")
         sys.exit(1)
+    else:
+        log("SUCCESS", "All required tools are available")
+
+def setup_directories(domain):
+    global SCAN_DIR
+    base_dir = os.path.join(os.getcwd(), "scans", domain)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    SCAN_DIR = os.path.join(base_dir, timestamp)
+
+    # Create directory structure
+    directories = [
+        os.path.join(SCAN_DIR, d)
+        for d in [
+            "subdomains",
+            "wayback_data",
+            "crawled_urls",
+            "content_discovery",
+            "reports",
+        ]
+    ]
+
+    for directory in directories:
+        os.makedirs(directory, exist_ok=True)
 
 def enumerate_subdomains(domain, aggressive_mode):
     log("INFO", "Starting subdomain enumeration...")
@@ -67,15 +65,19 @@ def enumerate_subdomains(domain, aggressive_mode):
     unique_subdomains = os.path.join(subdomains_dir, "unique_subdomains.txt")
 
     # Run subfinder
-    subfinder_cmd = f"subfinder -d {domain} -silent >> {raw_subdomains}"
-    run_command(subfinder_cmd)
+    os.system(f"subfinder -d {domain} > {raw_subdomains}")
 
     # Run amass
     if aggressive_mode:
-        amass_cmd = f"amass enum -d {domain} >> {raw_subdomains}"
+        os.system(f"amass enum -d {domain} > {raw_subdomains}.amass")
     else:
-        amass_cmd = f"amass enum -passive -d {domain} >> {raw_subdomains}"
-    run_command(amass_cmd)
+        os.system(f"amass enum -passive -d {domain} > {raw_subdomains}.amass")
+
+    # Combine amass results if they exist
+    if os.path.exists(f"{raw_subdomains}.amass"):
+        with open(f"{raw_subdomains}.amass", 'r') as amass_file:
+            with open(raw_subdomains, 'a') as raw_file:
+                raw_file.write(amass_file.read())
 
     # Remove duplicates and save to unique_subdomains.txt
     if os.path.isfile(raw_subdomains):
@@ -91,6 +93,28 @@ def enumerate_subdomains(domain, aggressive_mode):
         log("WARN", "No subdomains found")
         return None
 
+def probe_live_hosts(subdomains_file, aggressive_mode):
+    if not subdomains_file or not os.path.isfile(subdomains_file):
+        log("WARN", "No subdomains file for probing")
+        return None
+
+    log("INFO", "Probing for live hosts...")
+    live_hosts_file = os.path.join(SCAN_DIR, "subdomains", "live_hosts.txt")
+
+    if aggressive_mode:
+        os.system(f"httpx -l {subdomains_file} -silent -t 100 -o {live_hosts_file}")
+    else:
+        os.system(f"httpx -l {subdomains_file} -silent -t 50 -o {live_hosts_file}")
+
+    if os.path.isfile(live_hosts_file) and os.path.getsize(live_hosts_file) > 0:
+        hosts_count = sum(1 for _ in open(live_hosts_file))
+        log("SUCCESS", f"Found {hosts_count} live hosts")
+        log("SUCCESS", f"Results saved to {live_hosts_file}")
+        return live_hosts_file
+    else:
+        log("WARN", "No live hosts found")
+        return None
+
 def fetch_wayback_data(subdomains_file):
     if not subdomains_file or not os.path.isfile(subdomains_file):
         log("WARN", "No subdomains file for wayback data collection")
@@ -104,8 +128,7 @@ def fetch_wayback_data(subdomains_file):
         domains = f.read().splitlines()
 
     for domain in domains:
-        wayback_cmd = f"waybackurls {domain} >> {wayback_file}"
-        run_command(wayback_cmd)
+        os.system(f"waybackurls {domain} > {wayback_file}")
 
     if os.path.isfile(wayback_file) and os.path.getsize(wayback_file) > 0:
         urls_count = sum(1 for _ in open(wayback_file))
@@ -116,29 +139,6 @@ def fetch_wayback_data(subdomains_file):
         log("WARN", "No wayback URLs found")
         return None
 
-def probe_live_hosts(subdomains_file, aggressive_mode):
-    if not subdomains_file or not os.path.isfile(subdomains_file):
-        log("WARN", "No subdomains file for probing")
-        return None
-
-    log("INFO", "Probing for live hosts...")
-    live_hosts_file = os.path.join(SCAN_DIR, "subdomains", "live_hosts.txt")
-
-    if aggressive_mode:
-        httpx_cmd = f"httpx -l {subdomains_file} -silent -t 100 -o {live_hosts_file}"
-    else:
-        httpx_cmd = f"httpx -l {subdomains_file} -silent -t 50 -o {live_hosts_file}"
-
-    run_command(httpx_cmd)
-
-    if os.path.isfile(live_hosts_file) and os.path.getsize(live_hosts_file) > 0:
-        hosts_count = sum(1 for _ in open(live_hosts_file))
-        log("SUCCESS", f"Found {hosts_count} live hosts")
-        log("SUCCESS", f"Results saved to {live_hosts_file}")
-        return live_hosts_file
-    else:
-        log("WARN", "No live hosts found")
-        return None
 def combine_urls(live_hosts_file, wayback_file):
     combined_urls = set()
 
@@ -331,17 +331,18 @@ def main():
     check_requirements()
 
     # Run all reconnaissance modules
-    subdomains_file = enumerate_subdomains(domain, aggressive_mode)
-    live_hosts_file = probe_live_hosts(subdomains_file, aggressive_mode)
-    wayback_file = fetch_wayback_data(subdomains_file)
+    subdomains_file = enumerate_subdomains(domain, aggressive_mode
+        subdomains_file = enumerate_subdomains(domain, aggressive_mode)  
+    live_hosts_file = probe_live_hosts(subdomains_file, aggressive_mode)  
+    wayback_file = fetch_wayback_data(subdomains_file)  
+    combined_urls_file = combine_urls(live_hosts_file, wayback_file)  
     
-    combined_urls_file = combine_urls(live_hosts_file, wayback_file)
-    if combined_urls_file:
-        crawl_urls(combined_urls_file, aggressive_mode)
-        run_ffuf(combined_urls_file, aggressive_mode, wordlist_dir)
+    if combined_urls_file:  
+        crawl_urls(combined_urls_file, aggressive_mode)  
+        run_ffuf(combined_urls_file, aggressive_mode, wordlist_dir)  
+    
+    generate_report()  
+    log("SUCCESS", "Reconnaissance completed!")  
 
-    generate_report()
-    log("SUCCESS", "Reconnaissance completed!")
-
-if __name__ == "__main__":
+if __name__ == "__main__":  
     main()
