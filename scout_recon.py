@@ -331,7 +331,7 @@ def main():
     check_requirements()
 
     # Run all reconnaissance modules
-    subdomains_file = enumerate_subdomains(domain, aggressive_mode
+    subdomains_file = enumerate_subdomains(domain, aggressive_mode)
         subdomains_file = enumerate_subdomains(domain, aggressive_mode)  
     live_hosts_file = probe_live_hosts(subdomains_file, aggressive_mode)  
     wayback_file = fetch_wayback_data(subdomains_file)  
