@@ -218,16 +218,16 @@ def run_ffuf(urls_file, aggressive_mode, wordlist_dir):
 
     # Default wordlist paths
     if aggressive_mode:
-        default_wordlist = "/usr/share/wordlists/dirb/big.txt"
+        default_wordlist = "/data/data/com.termux/files/home/wordlists/Bug-Bounty-Wordlists/combined_wordlist.txt"
     else:
-        default_wordlist = "/usr/share/wordlists/dirb/common.txt"
+        default_wordlist = "/data/data/com.termux/files/home/wordlists/Bug-Bounty-Wordlists/combined_wordlist.txt"
 
     # Check if custom wordlist exists, otherwise use default
     if os.path.isfile(os.path.join(wordlist_dir, "directory-list-2.3-medium.txt")):
         wordlist = os.path.join(wordlist_dir, "directory-list-2.3-medium.txt")
     else:
         wordlist = default_wordlist
-        log("INFO", f"Using default wordlist: {default_wordlist}")
+        log("INFO", f"Using wordlist: {default_wordlist}")
 
     if not os.path.isfile(wordlist):
         log("ERROR", f"Wordlist not found at {wordlist}")
@@ -316,7 +316,7 @@ def main():
         "-w",
         "--wordlist-dir",
         help="Specify custom wordlist directory",
-        default="/usr/share/wordlists",
+        default="/data/data/com.termux/files/home/wordlists/Bug-Bounty-Wordlists/combined_wordlist.txt",
     )
     parser.add_argument(
         "-v", "--version", help="Show version information", action="store_true"
