@@ -344,8 +344,7 @@ def main():
 
     # Run all reconnaissance modules
     subdomains_file = enumerate_subdomains(domain, aggressive_mode)
-    subdomains_file = enumerate_subdomains(domain, aggressive_mode)  
-    live_hosts_file = probe_live_hosts(subdomains_file, aggressive_mode)  
+    subdomains_file = probe_live_hosts(subdomains_file, aggressive_mode)  
     wayback_file = fetch_wayback_data(subdomains_file)  
     combined_urls_file = combine_urls(live_hosts_file, wayback_file)  
     
